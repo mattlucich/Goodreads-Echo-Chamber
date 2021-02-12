@@ -1,0 +1,911 @@
+---
+title: "DATA606 - Data Project"
+author: Matthew Lucich
+date: December 3, 2020
+output:
+  ioslides_presentation:
+    self_contained: true
+    widescreen: true
+    smaller: true
+editor_options: 
+  chunk_output_type: console
+---
+
+<div class="notes">
+Documentation on using ioslides is available here:
+http://rmarkdown.rstudio.com/ioslides_presentation_format.html
+Some slides are adopted (or copied) from OpenIntro: https://www.openintro.org/
+</div>
+
+```{r setup, echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+library(ggplot2)
+library(dplyr)
+library(operators)
+library(tidyverse)
+library(VennDiagram)
+library(stats)
+library(ggpubr)
+library(hrbrthemes)
+library(viridis)
+library(onewaytests)
+library(HH)
+library(rstatix)
+library(rcompanion)
+options(width=100)
+par(mar=c(2.5,1,2,1))
+op <- par(xpd=TRUE) 
+
+# Books in Goodreads.com users' shelves
+df_sample <- read_csv("/Users/matthewlucich/Downloads/goodreads_10m_sample.csv")
+df_sample_prog <- head(df_sample, 5000000)
+df_sample_cons <- tail(df_sample, 5000000)
+glimpse(df_sample_prog)
+
+# Top 480 progressive and top 480 conservative books
+df_progressive_books <- read_csv("/Users/matthewlucich/Downloads/progressive-books-copy.csv")
+df_conservative_books <- read_csv("/Users/matthewlucich/Downloads/conservative-books-copy.csv")
+df_prog_and_cons_books <- full_join(df_progressive_books, df_conservative_books, by = NULL)
+
+# Books that are not actually progressive or conservative (e.g. 1984, Hunger Games)
+incorrectly_labeled_progressive <- c("4395", "2657", "13079982", "5470", "41681", "5805", "11486", "161744", "11107244", "38447", "16902", "177523", "385228", "5107", "110331", "25437891", "5472", "505483", "7763", "364550", "439332", "351982", "48855", "23590496", "77142", "67", "17283481", "382472", "20772719", "20694773", "30807685", "32940913", "26211610", "43175143", "43264421", "40028529", "17235424", "118007", "1591", "1097")
+
+# Books that are not actually progressive or conservative (e.g. 1984, Hunger Games)
+incorrectly_labeled_conservative <- c("89959", "285500", "1923820", "110331", "5470", "7613", "119787", "99955", "5129", "2767052", "115596", "161744", "5752", "359154", "11107244", "1005", "38447", "573833", "22816087", "416326", "12321", "51893", "11107244", "1005", "1093384", "930470", "27006607", "25471702", "1121818", "54386670", "112292", "10829542", "13496709", "30280826", "86172", "1032", "12914", "13554046", "121127", "416326", "2203", "2142255", "2211")
+
+
+df_progressive_books <- filter(df_progressive_books, (df_progressive_books$book_id %!in% 
+                                                        incorrectly_labeled_progressive))
+
+df_conservative_books <- filter(df_conservative_books, (df_conservative_books$book_id %!in% 
+                                                        incorrectly_labeled_conservative))
+
+# Filter out books incorrectly labeled progressive and filter for progressive books
+df_progressive_books_reads <- filter(df_sample_prog, (df_sample_prog$book_id %in% 
+                                                        df_progressive_books$book_id))
+
+# Filter out books incorrectly labeled conservative and filter for conservative books
+df_conservative_books_reads <- filter(df_sample_cons, (df_sample_cons$book_id %in% 
+                                                         df_conservative_books$book_id))
+
+# Filter for the books of users who have read at least one progressive book
+df_progressive_users <- df_sample_prog[
+  (df_sample_prog$user_id %in% unique(df_progressive_books_reads$user_id)), ]
+
+# Take sample
+prog_user_sample <- unique(df_progressive_users$user_id)[1:1000]
+df_progressive_users <- df_progressive_users[
+  (df_progressive_users$user_id %in% prog_user_sample), ]
+  
+# Filter for the books of users who have read at least one conservative book
+df_conservative_users <- df_sample_cons[
+  (df_sample_cons$user_id %in% unique(df_conservative_books_reads$user_id)), ]
+
+# Take sample
+cons_user_sample <- unique(df_conservative_users$user_id)[1:1000]
+df_conservative_users <- df_conservative_users[
+  (df_conservative_users$user_id %in% cons_user_sample), ]
+
+# Combine progressive user sample and conservative user sample
+df_users_comb <- bind_rows(df_progressive_users, df_conservative_users)
+
+# Filter for progressive and conservative reads
+df_prog_and_cons_reads <- filter(df_sample, (df_sample$book_id %in% df_progressive_books$book_id) | (df_sample$book_id %in% df_conservative_books$book_id))
+```
+
+
+
+## Research question {.bigger}
+
+Do progressives and conservatives read books of opposing views as often as they read books of their own views?
+
+
+## Main Dataset 
+
+* Collected in late 2017 from Goodreads.com users' public shelves by [UC San Diego](https://sites.google.com/eng.ucsd.edu/ucsdbookgraph/home).
+
+* Prior to filtering, 228,648,342 user-book interactions; 2,360,655 books; 876,145 users.
+
+* Each observation is a book the user has claimed to have read.
+
+* Once filtered for user-book interactions of users that have read at least one progressive book, the df_progressive_users dataframe contains 139,669,596 observations (books read).
+
+* Once filtered for user-book interactions of users that have read at least one conservative book, the df_conservative_users dataframe contains 93,377,104 observations (books read).
+
+
+## Supplementary Dataset
+
+* df_progressive_books dataframe contains the [top 480 progressive books](https://www.goodreads.com/list/show/15603.Best_Progressive_Reads) as voted for by Goodreads.com users.
+
+* df_conservative_books dataframe contains the [top 480 conservative books](https://www.goodreads.com/list/show/3921.Best_Conservative_Books) as voted for by Goodreads.com users.
+
+* incorrectly_labeled_progressive dataframe contains books to be removed from df_progressive_books due to them not being clearly progressive (e.g. Hunger Games, 1984).
+
+* incorrectly_labeled_conservative dataframe contains books to be removed from df_conservative_books due to them not being clearly conservative (e.g. Hunger Games, 1984).
+
+
+## Histogram code: Single vs Multi-Type Users {.smaller}
+
+```{r, fig.show="asis", echo=TRUE, results='show',}
+prog_cons_or_both <- function(df) {
+   df_binary <- tibble("user_id" = 1, "type" = 1)
+   for(user in unique(df$user_id)) {
+      user_temp <- df[df$user_id == user, ]
+      df_prog <- filter(user_temp, (user_temp$book_id %in% df_progressive_books$book_id))
+      df_cons <- filter(user_temp, (user_temp$book_id %in% df_conservative_books$book_id))
+      if (length(df_prog$X1)) {
+      df_users_labels <- df_users_labels %>% add_row("user_id" = user, "type" = 1)
+      }
+      if (length(df_cons$X1)) {
+      df_users_labels <- df_users_labels %>% add_row("user_id" = user, "type" = 1)
+      }
+   }
+  df_users_labels <- df_users_labels[-1,]
+  df_agg <- aggregate(df_users_labels$type, by=list(User=df_users_labels$user_id), FUN=sum)
+  df_agg <- arrange(df_agg, x)
+  df_agg
+}
+
+df_user_type_prog <- prog_cons_or_both(df_progressive_users)
+df_user_type_cons <- prog_cons_or_both(df_conservative_users)
+```
+
+
+## Histogram: Progressives vs Multi-Type Users {.smaller}
+
+```{r, fig.show="asis", echo=TRUE, results='show',}
+hist(df_user_type_prog$x, breaks = seq(from=0, to=2, by=1), xlab="Progressives / Multi", 
+     ylab = "Numer of users", plot = TRUE, labels= TRUE, main = "Progressives vs Multi",
+     col = "blue1", ylim=c(0,950))
+```
+
+
+## Histogram: Conservatives vs Multi-Type Users {.smaller}
+
+```{r, fig.show="asis", echo=TRUE, results='show',}
+hist(df_user_type_cons$x, breaks = seq(from=0, to=2, by=1), xlab="Conservatives / Multi", 
+     ylab = "Numer of users", plot = TRUE, labels= TRUE, main = "Conservatives vs Multi", 
+     col = "red1", ylim=c(0,650))
+```
+
+
+## Prepare data for ANOVA {.smaller}
+
+```{r}
+# Calculate the counts of the type of books read by a type of user
+anova_format <- function(df_users, df_book_type, group_type) {
+  df_group <- tibble("group" = "temp", "count" = 1)
+   for(user in unique(df_users$user_id)) {
+      user_temp <- df_users[df_users$user_id == user, ]
+      num_books <- filter(user_temp, (user_temp$book_id %in% df_book_type$book_id))
+      df_group <- df_group %>% add_row("group" = group_type, 
+                                       "count" = length(num_books$book_id))
+   }
+  df_group[-1,]
+}
+
+df_pp <- anova_format(df_progressive_users, df_progressive_books, "prog_prog")
+df_pc <- anova_format(df_progressive_users, df_conservative_books, "prog_cons")
+df_cc <- anova_format(df_conservative_users, df_conservative_books, "cons_cons")
+df_cp <- anova_format(df_conservative_users, df_progressive_books, "cons_prog")
+
+df_anova <- bind_rows(df_pp,df_pc,df_cc,df_cp)
+df_anova_ro <- bind_rows(df_pp,df_pc,df_cc,df_cp)
+```
+
+
+## Summary statistics {.smaller}
+
+```{r}
+# Summary statistics for each group
+df_anova %>%
+group_by(group) %>%
+  summarise(
+    n = n(),
+    mean = mean(count),
+    sd = sd(count),
+    median = median(count),
+    min = min(count),
+    max = max(count)
+  )
+```
+
+
+## Boxplots code {.smaller}
+
+```{r}
+user_reads_dist_plot_out <- ggboxplot(df_anova, x = "group", y = "count", 
+          color = "group", palette = c("#00AFBB", "#E7B800", "#FC4E07", "#FC4E07"),
+          order = c("prog_prog", "prog_cons", 
+                    "cons_cons", "cons_prog"),
+          ylab = "Count", xlab = "Group")
+```
+
+
+## Boxplots {.smaller}
+
+```{r}
+user_reads_dist_plot_out
+```
+
+
+## Distribution plots code {.smaller}
+
+```{r}
+# Plot each group's distribution
+variability_groups_plot <- function(df, x) {
+    p <- ggplot(data=df, aes(x=x, group=group, fill=group)) +
+    geom_histogram(binwidth = 0.5) +
+    theme_ipsum() +
+    facet_wrap(~group) +
+    theme(
+      legend.position="none",
+      panel.spacing = unit(0.1, "lines"),
+      axis.ticks.x=element_blank()
+    )
+}
+```
+
+
+## Distribution plots {.smaller}
+
+```{r}
+plot_count_out <- variability_groups_plot(df_anova, df_anova$count)
+plot_count_out
+```
+
+
+## Transformations {.smaller}
+
+```{r}
+transform_data <- function(df) {
+  # Square root transformation
+  df <- df %>% mutate(sqrt_count = df$count^0.5)
+  
+  # Log transformation (add 1 to correct for zeros)
+  df <- df %>% mutate(log_count = log(df$count+1))
+  df
+}
+df_anova <- transform_data(df_anova)
+
+```
+
+
+## Distribution plots (log transformed)  {.smaller}
+
+```{r}
+plot_log <- variability_groups_plot(df_anova, df_anova$log_count)
+plot_log
+```
+
+
+## Choosing inference to perform {.smaller}
+
+ANOVA, linear model
+
+* Passes independence assumption
+* Fails nearly normal assumption
+* Fails nearly constant variance assumption
+
+
+Kruskal-Wallis / Mann Whitney U
+
+* Passes independence assumption
+* Passes ordinal / ratio / interval scale assumption
+* Potentially fails nearly same shape distribution assumption
+
+
+## Choosing inference to perform (continued) {.smaller}
+
+Welch's ANOVA
+
+* Passes independence assumption
+* Fails nearly normal assumption
+
+
+ANOVA, generalized linear model (Poisson)
+
+* Passes independence assumption
+* Passes follows Poisson distribution assumption
+* Passes non-negative integer assumption
+
+
+## ANOVA, generalized linear model (Poisson) {.smaller}
+
+<p>GLMs</p>
+* Linear predictor
+* Link function
+* Error structure
+
+<p>Poisson</p>
+* Ideal for count data
+* Mean and variance are the same
+
+<p>Chi-Square Test</p>
+* Compares expected frequencies and the observed frequencies 
+
+
+## Cramer's V {.smaller}
+
+* Equivalent to the correlation coefficient r
+* For df of 1: .1 signifies a small effect, .3 a medium effect, .5 a large effect
+* For df of 3: .06 signifies a small effect, .17 a medium effect, .29 a large effect
+
+$V=\sqrt{\frac{x^2}{n\cdot df}}$
+
+
+## Kruskal-Wallis / Mann-Whitney U {.smaller}
+
+<p>
+* Non parametric tests (no distribution assumption)
+* Use ranks of data, rather than actual values
+* Test if two samples are from the same population
+</p>
+
+<p>Kruskal-Wallis Steps</p>
+1. Sort the data in a combined set
+2. Assign ranks to the data points
+3. Add up the different ranks for each group
+4. Calculate the H statistic:
+
+<img src='h-stat-kw.png' alt='Mann Whitney GLM summary' height = '75' />
+
+
+## Eta squared / R {.smaller}
+
+<p>Eta squared</p>
+* Quantifies the percentage of variance explained by a predictor variable
+* Is analogous to R squared
+
+<p>R</p>
+* .1 signifies a small effect, .3 a medium effect, .5 a large effect
+
+<p>$r = \frac{Z}{√N}$</p>
+
+
+## Groups {.smaller}
+
+```{r}
+df_anova_pp_pc <- filter(df_anova, (df_anova$group == "prog_prog")
+                                     | (df_anova$group == "prog_cons"))
+df_anova_pp_cc <- filter(df_anova, (df_anova$group == "prog_prog")
+                                     | (df_anova$group == "cons_cons"))
+df_anova_pp_cp <- filter(df_anova, (df_anova$group == "prog_prog")
+                                     | (df_anova$group == "cons_prog"))
+df_anova_pc_cc <- filter(df_anova, (df_anova$group == "prog_cons")
+                                     | (df_anova$group == "cons_cons"))
+df_anova_pc_cp <- filter(df_anova, (df_anova$group == "prog_cons")
+                                     | (df_anova$group == "cons_prog"))
+df_anova_cc_cp <- filter(df_anova, (df_anova$group == "cons_cons")
+                                     | (df_anova$group == "cons_prog"))
+```
+
+
+## Inference: GLM ANOVA (multi group) {.smaller}
+
+```{r}
+glm_model <- glm(df_anova$count ~ as.factor(df_anova$group), poisson) 
+anova(glm_model, test = "Chisq")
+cramerV(df_anova$group, df_anova$count)
+```
+
+## Post Hoc Tests: GLM ANOVA (1 of 6) {.smaller}
+
+```{r}
+# pp vs pc
+glm_model <- glm(df_anova_pp_pc$count ~ as.factor(df_anova_pp_pc$group), poisson) 
+anova(glm_model, test = "Chisq")
+cramerV(df_anova_pp_pc$group, df_anova_pp_pc$count)
+```
+
+## Post Hoc Tests Summary: GLM ANOVA {.centered}
+
+<img src='glm-summary-with-outliers.png' alt='ANOVA GLM summary' height = '280' />
+
+
+## Inference: Kruskal-Wallis (multi group) {.smaller}
+
+```{r}
+kruskal.test(count ~ group, data = df_anova) 
+kruskal_effsize(count ~ group, data = df_anova) # eta squared
+```
+
+
+## Post Hoc Tests: Mann-Whitney U (1 of 6) {.smaller}
+
+```{r}
+# pp vs pc
+wilcox.test(count ~ group, data = df_anova_pp_pc)
+wilcox_effsize(count ~ group, data = df_anova_pp_pc)
+```
+
+## Post Hoc Tests Summary: Mann-Whitney U {.centered}
+
+<img src='mw-summary-with-outliers.png' alt='Mann Whitney GLM summary' height = '280' />
+
+
+## Conclusions / Limitations
+
+Limitations
+
+* The set of progressive books may be more popular.
+
+* Validity of Kruskal-Wallis and Mann-Whitney U Tests
+
+Conclusions
+
+* Progressives and conservatives do not read books of opposing views as often as they read books of their own views.
+
+
+# Thank You
+
+
+## References (1 of 2)
+
+M.J. Crawley (2005) ["Statistics: An Introduction Using R"](http://www.math.chs.nihon-u.ac.jp/~tanaka/files/kenkyuu/CountData.pdf)
+
+Alboukadel Kassambara ["One-Way ANOVA Test in R"](http://www.sthda.com/english/wiki/one-way-anova-test-in-r)
+
+Alboukadel Kassambara ["rstatix v0.6.0"](https://www.rdocumentation.org/packages/rstatix/)
+
+Stephanie Glen ["Kruskal Wallis H Test: Definition, Examples & Assumptions"](https://www.statisticshowto.com/kruskal-wallis/)
+
+Stephanie Glen ["Mann Whitney U Test"](https://www.statisticshowto.com/mann-whitney-u-test/)
+
+Nick Hendershot ["GLM with zero-inflated data"](https://fukamilab.github.io/BIO202/04-C-zero-data.html)
+
+Mengting Wan, Julian McAuley, "Item Recommendation on Monotonic Behavior Chains", in RecSys'18.  [bibtex](https://dblp.uni-trier.de/rec/conf/recsys/WanM18.html?view=bibtex)
+
+Mengting Wan, Rishabh Misra, Ndapa Nakashole, Julian McAuley, ["Fine-Grained Spoiler Detection from Large-Scale Review Corpora"](https://www.aclweb.org/anthology/P19-1248/), in ACL'19. [bibtex](https://dblp.uni-trier.de/rec/conf/acl/WanMNM19.html?view=bibtex)
+
+
+## References (2 of 2)
+
+Adam Lund, Mark Lund ["Kruskal-Wallis H Test using SPSS Statistics"](https://statistics.laerd.com/spss-tutorials/kruskal-wallis-h-test-using-spss-statistics.php)
+
+Justin Zeltzer (2018) ["Non-parametric tests - Sign test, Wilcoxon signed rank, Mann-Whitney (YouTube)"](https://www.youtube.com/watch?v=IcLSKko2tsg)
+
+Charles Zaiontz ["Effect Size for Chi-square Test"](https://www.real-statistics.com/chi-square-and-f-distributions/effect-size-chi-square/)
+
+Yan Holtz ["Faceting with ggplot2"](https://www.r-graph-gallery.com/223-faceting-with-ggplot2.html)
+
+Drew Tyre (2017) ["Introduction to generalized linear models"](https://www.youtube.com/watch?v=S5lNiAJ5X4E)
+
+The R Core Team ["stats v3.6.2 (R documentation)"](https://www.rdocumentation.org/packages/stats/versions/3.6.2)
+
+Salvatore Mangiafico ["rcompanion v2.3.26 (R documentation)"](https://www.rdocumentation.org/packages/rcompanion/versions/2.3.26)
+
+Karen Grace-Martin ["A Comparison of Effect Size Statistics"](https://www.theanalysisfactor.com/effect-size/)
+
+
+# Appendix: Additional inference with outliers slides
+
+
+## Inference: GLM ANOVA Post Hoc Tests (2 of 6) {.smaller}
+
+```{r}
+# pp vs cc
+qp_glm_model <- glm(df_anova_pp_cc$count ~ as.factor(df_anova_pp_cc$group), poisson) 
+anova(qp_glm_model, test = "Chisq")
+cramerV(df_anova_pp_cc$group, df_anova_pp_cc$count)
+```
+
+
+## Inference: GLM ANOVA Post Hoc Tests (3 of 6) {.smaller}
+
+```{r}
+# pp vs cp
+qp_glm_model <- glm(df_anova_pp_cp$count ~ as.factor(df_anova_pp_cp$group), poisson) 
+anova(qp_glm_model, test = "Chisq")
+cramerV(df_anova_pp_cp$group, df_anova_pp_cp$count)
+```
+
+
+## Inference: GLM ANOVA Post Hoc Tests (4 of 6) {.smaller}
+
+```{r}
+# pc vs cc
+qp_glm_model <- glm(df_anova_pc_cc$count ~ as.factor(df_anova_pc_cc$group), poisson) 
+anova(qp_glm_model, test = "Chisq")
+cramerV(df_anova_pc_cc$group, df_anova_pc_cc$count)
+```
+
+
+## Inference: GLM ANOVA Post Hoc Tests (5 of 6) {.smaller}
+
+```{r}
+# pc vs cp
+qp_glm_model <- glm(df_anova_pc_cp$count ~ as.factor(df_anova_pc_cp$group), poisson) 
+anova(qp_glm_model, test = "Chisq")
+cramerV(df_anova_pc_cp$group, df_anova_pc_cp$count)
+```
+
+
+## Inference: GLM ANOVA Post Hoc Tests (6 of 6) {.smaller}
+
+```{r}
+# cc vs cp
+qp_glm_model <- glm(df_anova_cc_cp$count ~ as.factor(df_anova_cc_cp$group), poisson) 
+anova(qp_glm_model, test = "Chisq")
+cramerV(df_anova_cc_cp$group, df_anova_cc_cp$count)
+```
+
+
+## Inference: Mann-Whitney Post Hoc Tests (2 of 6) {.smaller}
+
+```{r}
+# Mann-Whitney: pp vs cc
+wilcox.test(count ~ group, data = df_anova_pp_cc)
+wilcox_effsize(count ~ group, data = df_anova_pp_cc) # r ( = Z/(√Nobs))
+```
+
+
+## Inference: Mann-Whitney Post Hoc Tests (3 of 6) {.smaller}
+
+```{r}
+# Mann-Whitney: pp vs cp
+wilcox.test(count ~ group, data = df_anova_pp_cp)
+wilcox_effsize(count ~ group, data = df_anova_pp_cp) # r ( = Z/(√Nobs))
+```
+
+
+## Inference: Mann-Whitney Post Hoc Tests (4 of 6) {.smaller}
+
+```{r}
+# Mann-Whitney: pc vs cc
+wilcox.test(count ~ group, data = df_anova_pc_cc)
+wilcox_effsize(count ~ group, data = df_anova_pc_cc) # r ( = Z/(√Nobs))
+```
+
+
+## Inference: Mann-Whitney Post Hoc Tests (5 of 6)  {.smaller}
+
+```{r}
+# Mann-Whitney: pc vs cp
+wilcox.test(count ~ group, data = df_anova_pc_cp)
+wilcox_effsize(count ~ group, data = df_anova_pc_cp) # r ( = Z/(√Nobs))
+```
+
+
+## Inference: Mann-Whitney Post Hoc Tests (6 of 6)  {.smaller}
+
+```{r}
+# Mann-Whitney: cc vs cp
+wilcox.test(count ~ group, data = df_anova_cc_cp)
+wilcox_effsize(count ~ group, data = df_anova_cc_cp) # r ( = Z/(√Nobs))
+```
+
+
+# Appendix: EDA and Inference without outliers
+
+
+## Remove outliers (1 of 5) {.smaller}
+
+```{r}
+Q <- quantile(df_anova_ro$count, probs=c(.25, .75), na.rm = FALSE)
+iqr <- IQR(df_anova_ro$count)
+df_anova_ro <- subset(df_anova_ro, df_anova_ro$count > (Q[1] - 1.5*iqr) & df_anova_ro$count < (Q[2]+1.5*iqr))
+```
+
+
+## Summary statistics (2 of 5) {.smaller}
+
+```{r}
+# Summary statistics for each group
+df_anova_ro %>%
+group_by(group) %>%
+  summarise(
+    n = n(),
+    mean = mean(count),
+    sd = sd(count),
+    min = min(count),
+    max = max(count)
+  )
+```
+
+
+## Boxplots code (no outliers) (3 of 5) {.smaller}
+
+```{r}
+user_reads_dist_plot <- ggboxplot(df_anova_ro, x = "group", y = "count", 
+          color = "group", palette = c("#00AFBB", "#E7B800", "#FC4E07", "#FC4E07"),
+          order = c("prog_prog", "prog_cons", 
+                    "cons_cons", "cons_prog"),
+          ylab = "Count", xlab = "Group")
+```
+
+
+## Boxplots (no outliers) (4 of 5) {.smaller}
+
+```{r}
+user_reads_dist_plot
+```
+
+
+## Distribution plots (without outliers) (5 of 5)   {.smaller}
+
+```{r}
+plot_count <- variability_groups_plot(df_anova_ro, df_anova_ro$count)
+plot_count
+```
+
+
+## Transformations {.smaller}
+
+```{r}
+transform_data <- function(df) {
+  # Square root transformation
+  df <- df %>% mutate(sqrt_count = df$count^0.5)
+  
+  # Log transformation (add 1 to correct for zeros)
+  df <- df %>% mutate(log_count = log(df$count+1))
+  df
+}
+df_anova_ro <- transform_data(df_anova_ro)
+
+```
+
+
+## Summary statistics (log count) {.smaller}
+
+```{r}
+# Summary statistics for each group
+df_anova_ro %>%
+group_by(group) %>%
+  summarise(
+    n = n(),
+    mean = mean(log_count),
+    sd = sd(log_count),
+    min = min(log_count),
+    max = max(log_count)
+  )
+```
+
+
+## Distribution plots (log transformed)  {.smaller}
+
+```{r}
+plot_log <- variability_groups_plot(df_anova_ro, df_anova_ro$log_count)
+plot_log
+```
+
+
+## Groups without outliers {.smaller}
+
+```{r}
+df_anova_pp_pc_ro <- filter(df_anova_ro, (df_anova_ro$group == "prog_prog")
+                                     | (df_anova_ro$group == "prog_cons"))
+df_anova_pp_cc_ro <- filter(df_anova_ro, (df_anova_ro$group == "prog_prog")
+                                     | (df_anova_ro$group == "cons_cons"))
+df_anova_pp_cp_ro <- filter(df_anova_ro, (df_anova_ro$group == "prog_prog")
+                                     | (df_anova_ro$group == "cons_prog"))
+df_anova_pc_cc_ro <- filter(df_anova_ro, (df_anova_ro$group == "prog_cons")
+                                     | (df_anova_ro$group == "cons_cons"))
+df_anova_pc_cp_ro <- filter(df_anova_ro, (df_anova_ro$group == "prog_cons")
+                                     | (df_anova_ro$group == "cons_prog"))
+df_anova_cc_cp_ro <- filter(df_anova_ro, (df_anova_ro$group == "cons_cons")
+                                     | (df_anova_ro$group == "cons_prog"))
+```
+
+
+## Assumption: Variability across the groups is about equal tests {.smaller}
+
+```{r}
+# Bartlett: Parametric test of the equality of variances
+bartlett.test(count ~ group, data=df_anova_ro)
+
+# Fligner-Killeen: Non-parametric test of the equality of variances
+fligner.test(count ~ group, data=df_anova_ro)
+```
+
+
+## Inference: GLM ANOVA (comparing all groups) {.smaller}
+
+```{r}
+# GLM ANOVA
+qp_glm_model <- glm(df_anova_ro$count ~ as.factor(df_anova_ro$group), quasipoisson) 
+anova(qp_glm_model, test = "Chisq")
+cramerV(df_anova_ro$group, df_anova_ro$count)
+```
+
+## Inference: GLM ANOVA Post Hoc Tests (1 of 6) {.smaller}
+
+```{r}
+# pp vs pc
+qp_glm_model <- glm(df_anova_pp_pc_ro$count ~ as.factor(df_anova_pp_pc_ro$group), quasipoisson) 
+anova(qp_glm_model, test = "Chisq")
+cramerV(df_anova_pp_pc_ro$group, df_anova_pp_pc_ro$count)
+```
+
+
+## Inference: GLM ANOVA Post Hoc Tests (2 of 6) {.smaller}
+
+```{r}
+# pp vs cc
+qp_glm_model <- glm(df_anova_pp_cc_ro$count ~ as.factor(df_anova_pp_cc_ro$group), quasipoisson) 
+anova(qp_glm_model, test = "Chisq")
+cramerV(df_anova_pp_cc_ro$group, df_anova_pp_cc_ro$count)
+```
+
+
+## Inference: GLM ANOVA Post Hoc Tests (3 of 6) {.smaller}
+
+```{r}
+# pp vs cp
+qp_glm_model <- glm(df_anova_pp_cp_ro$count ~ as.factor(df_anova_pp_cp_ro$group), quasipoisson) 
+anova(qp_glm_model, test = "Chisq")
+cramerV(df_anova_pp_cp_ro$group, df_anova_pp_cp_ro$count)
+```
+
+
+## Inference: GLM ANOVA Post Hoc Tests (4 of 6) {.smaller}
+
+```{r}
+# pc vs cc
+qp_glm_model <- glm(df_anova_pc_cc_ro$count ~ as.factor(df_anova_pc_cc_ro$group), quasipoisson) 
+anova(qp_glm_model, test = "Chisq")
+cramerV(df_anova_pc_cc_ro$group, df_anova_pc_cc_ro$count)
+```
+
+
+## Inference: GLM ANOVA Post Hoc Tests (5 of 6) {.smaller}
+
+```{r}
+# pc vs cp
+qp_glm_model <- glm(df_anova_pc_cp_ro$count ~ as.factor(df_anova_pc_cp_ro$group), quasipoisson) 
+anova(qp_glm_model, test = "Chisq")
+cramerV(df_anova_pc_cp_ro$group, df_anova_pc_cp_ro$count)
+```
+
+
+## Inference: GLM ANOVA Post Hoc Tests (6 of 6) {.smaller}
+
+```{r}
+# cc vs cp
+qp_glm_model <- glm(df_anova_cc_cp_ro$count ~ as.factor(df_anova_cc_cp_ro$group), quasipoisson) 
+anova(qp_glm_model, test = "Chisq")
+cramerV(df_anova_cc_cp_ro$group, df_anova_cc_cp_ro$count)
+```
+
+
+## Inference: Kruskal-Wallis (comparing all groups) {.smaller}
+
+```{r}
+# Kruskal-Wallis (test for non-normal distributions)
+kruskal.test(count ~ group, data = df_anova) 
+kruskal_effsize(count ~ group, data = df_anova) # eta squared
+```
+
+
+## Inference: Mann-Whitney Post Hoc Tests (1 of 6) {.smaller}
+
+```{r}
+# Mann-Whitney: pp vs pc
+wilcox.test(count ~ group, data = df_anova_pp_pc_ro)
+wilcox_effsize(count ~ group, data = df_anova_pp_pc_ro) # r ( = Z/(√Nobs))
+```
+
+
+## Inference: Mann-Whitney Post Hoc Tests (2 of 6) {.smaller}
+
+```{r}
+# Mann-Whitney: pp vs cc
+wilcox.test(count ~ group, data = df_anova_pp_cc_ro)
+wilcox_effsize(count ~ group, data = df_anova_pp_cc_ro) # r ( = Z/(√Nobs))
+```
+
+
+## Inference: Mann-Whitney Post Hoc Tests (3 of 6) {.smaller}
+
+```{r}
+# Mann-Whitney: pp vs cp
+wilcox.test(count ~ group, data = df_anova_pp_cp_ro)
+wilcox_effsize(count ~ group, data = df_anova_pp_cp_ro) # r ( = Z/(√Nobs))
+```
+
+
+## Inference: Mann-Whitney Post Hoc Tests (4 of 6) {.smaller}
+
+```{r}
+# Mann-Whitney: pc vs cc
+wilcox.test(count ~ group, data = df_anova_pc_cc_ro)
+wilcox_effsize(count ~ group, data = df_anova_pc_cc_ro) # r ( = Z/(√Nobs))
+```
+
+
+## Inference: Mann-Whitney Post Hoc Tests (5 of 6)  {.smaller}
+
+```{r}
+# Mann-Whitney: pc vs cp
+wilcox.test(count ~ group, data = df_anova_pc_cp_ro)
+wilcox_effsize(count ~ group, data = df_anova_pc_cp_ro) # r ( = Z/(√Nobs))
+```
+
+
+## Inference: Mann-Whitney Post Hoc Tests (6 of 6)  {.smaller}
+
+```{r}
+# Mann-Whitney: cc vs cp
+wilcox.test(count ~ group, data = df_anova_cc_cp_ro)
+wilcox_effsize(count ~ group, data = df_anova_cc_cp_ro) # r ( = Z/(√Nobs))
+```
+
+
+# Appendix: miscellaneous
+
+
+## Inference: LM ANOVA (comparing all groups) {.smaller}
+
+```{r}
+# ANOVA
+anova_model <- aov(count ~ group, data = df_anova)
+summary(anova_model)
+```
+
+
+## Top progressive books by progressive users {.smaller}
+
+```{r}
+# To view actual book https://www.goodreads.com/book/show/[insert book_id]
+prog_books_by_prog_users <- filter(df_progressive_users, df_progressive_users$book_id %in% df_progressive_books$book_id)
+head(prog_books_by_prog_users %>% count(book_id, sort = TRUE))
+```
+
+
+## Top conservative books by conservative users {.smaller}
+
+```{r}
+# To view actual book https://www.goodreads.com/book/show/[insert book_id]
+cons_books_by_cons_users <- filter(df_conservative_users, df_conservative_users$book_id %in% df_conservative_books$book_id)
+cons_books_by_cons_users %>% count(book_id, sort = TRUE)
+```
+
+
+## Distribution plots (square root transformed)  {.smaller}
+
+```{r}
+plot_sqrt <- variability_groups_plot(df_anova, df_anova$sqrt_count)
+plot_sqrt
+```
+
+
+## Checking nearly constant variance assumption {.smaller}
+
+```{r}
+# Bartlett: Parametric test of the equality of variances
+bartlett.test(log_count ~ group, data=df_anova_pp_cc)
+
+# Fligner-Killeen: Non-parametric test of the equality of variances
+fligner.test(log_count ~ group, data=df_anova_pp_cc)
+```
+
+
+## Venn diagram code
+
+```{r}
+# Filter for the progressive and conservative books of progressive users
+df_progressive_users_political_books <- df_progressive_users[
+  (df_progressive_users$book_id %in% df_prog_and_cons_books$book_id), ]
+
+# Filter for the progressive and conservative books of conservative users
+df_conservative_users_political_books <- df_conservative_users[
+  (df_conservative_users$book_id %in% df_prog_and_cons_books$book_id), ]
+  
+# Convert to venn diagram format
+prog_only <- paste(df_progressive_users_political_books$book_id, sep="")
+cons_only <- paste(df_conservative_users_political_books$book_id, sep="")
+
+# Chart
+venn.diagram(
+  x = list(prog_only, cons_only),
+  category.names = c("Progressive" , "Conservative"),
+  filename = '#14_venn_diagramm.png',
+  output=TRUE
+)
+```
+
+
+## Venn diagram {.centered}
+
+<img src='venn-books.png' alt='Venn books' height = '500' />
+
+
